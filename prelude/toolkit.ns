@@ -1,0 +1,44 @@
+// NTK-style helpers for building a Newton package with NEWT/64.
+//
+// In Newton Toolkit, views laid out in a project become "step children" of
+// their parent, and "declaring" a child gives the parent a slot that points
+// at it once the app is open. These two functions do the same for templates
+// written as NewtonScript frames (same behaviour as Einstein's Toolkit).
+
+global AddStepForm(form, child)
+begin
+    if not form.stepChildren then form.stepChildren := [];
+    AddArraySlot(form.stepChildren, child);
+end;
+
+global StepDeclare(form, child, sym)
+begin
+    if not form.stepAllocateContext then form.stepAllocateContext := [];
+    AddArraySlot(form.stepAllocateContext, sym);
+    AddArraySlot(form.stepAllocateContext, child);
+    form.(sym) := nil;
+    child.preallocatedContext := sym;
+end;
+
+// Wrap a form (the app's base view template) into a package and save it.
+global SavePackage(path, appName, appSymbol, appLabel, icon, form, copyright)
+begin
+    local pkg := {
+        class: 'PackageHeader,
+        type: 2021161080,                       // 'xxxx'
+        pkg_version: 0,
+        version: 1,
+        copyright: copyright,
+        name: appName,
+        flags: 0,
+        parts: [{
+            class: 'PackagePart,
+            info: MakeBinaryFromHex("4E6577746F6E20556E6C6F636B", 'binary),   // "Newton Unlock"
+            flags: 129,                         // kProtocolPart + kNOS2Part
+            type: 1718579821,                   // 'form'
+            align: 8,
+            data: {app: appSymbol, text: appLabel, icon: icon, theForm: form}
+        }]
+    };
+    SaveBinary(MakePkg(pkg), path);
+end;

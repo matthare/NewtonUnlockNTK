@@ -1,0 +1,220 @@
+// Newton Unlock for Newton OS 2.x (MessagePad 120/130 with 2.0, 2000, 2100, eMate 300).
+//
+// Pick a game, write the registration code or owner name, and the unlock code
+// appears. The games and algorithms are in unlockers.ns; build.sh puts the
+// pieces together and makes NewtonUnlock.pkg with NEWT/64.
+
+kAppName := "NewtonUnlock:register";
+kAppSymbol := '|NewtonUnlock:register|;
+kAppLabel := "Unlock";
+
+gameTitles := [];
+foreach g in games do AddArraySlot(gameTitles, g.title);
+
+// ---------------------------------------------------------------------------
+// Base view: a Newton OS 2 floating window -- the thick rounded "dragger"
+// border with the grab handle at the top (protoDragger moves the window when
+// the handle is dragged), a title and a close box, centred on the screen.
+
+// viewFormat used for this border by Apple's NTK (copied from NewtHack's
+// package): fill white, frame pattern 13 = dragger, pen 7, inset 1, round 5.
+// (Einstein's vfFrameDragger constant is wrong, so the value is spelled out.)
+// Declared as constants so the numbers are built into the code: plain
+// variables here only exist while building, not on the Newton.
+constant kDraggerFormat := 0x050107D1;
+constant kWindowWidth := 222;           // the border adds 8 pixels each side
+constant kWindowHeight := 222;
+
+theForm := {
+    _proto: protoDragger,
+    viewFormat: kDraggerFormat,
+    viewFlags: 516,                     // vApplication + vClickable
+    appSymbol: kAppSymbol,
+    viewBounds: {left: 0, top: 0, right: kWindowWidth, bottom: kWindowHeight},
+
+    games: games,
+    unlock: unlock,
+    gameIndex: 12,                      // World Conquest
+    nameText: "",
+    regText: "",
+
+    viewSetupFormScript: func()
+    begin
+        // a fixed-size window, centred in the screen area apps can use,
+        // leaving room for the border around it
+        local b := GetAppParams();
+        local w := kWindowWidth, h := kWindowHeight;
+        if w > b.appAreaWidth - 16 then w := b.appAreaWidth - 16;
+        if h > b.appAreaHeight - 16 then h := b.appAreaHeight - 16;
+        self.viewBounds := RelBounds(b.appAreaLeft + (b.appAreaWidth - w) div 2,
+                                     b.appAreaTop + (b.appAreaHeight - h) div 2, w, h);
+        local owner := GetUserConfig('name);
+        if owner then nameText := Clone(owner);  // most schemes use the owner name
+    end,
+
+    CurrentGame: func() games[gameIndex],
+
+    // (not "InputLabel": slot names ignore case, so it would clash with the inputLabel view)
+    LabelText: func() if :CurrentGame().input = 'name then "Name" else "Reg. Code",
+
+    InputText: func() if :CurrentGame().input = 'name then nameText else regText,
+
+    // {big: code or "", small: message or ""}
+    ResultFor: func(text)
+    begin
+        local g := :CurrentGame();
+        local r := unlock:Compute(g, text);
+        if r = nil then
+            return {big: "", small: if g.input = 'name then "Write a name above." else "Write a registration code above."};
+        if r.error then return {big: "", small: r.error};
+        return {big: r.code, small: ""};
+    end,
+
+    CurrentResult: func()
+        :ResultFor(if :CurrentGame().input = 'none then "" else :InputText()),
+
+    // Called when the user picks another game
+    SelectGame: func(index)
+    begin
+        gameIndex := index;
+        local g := :CurrentGame();
+        SetValue(inputLabel, 'text, :LabelText());
+        SetValue(hintText, 'text, g.hint);
+        if g.input = 'none then begin
+            inputLabel:Hide();
+            inputLine:Hide();
+        end else begin
+            inputLabel:Show();
+            inputLine:Show();
+            SetValue(inputLine, 'text, Clone(:InputText()));
+        end;
+        :ShowResult();
+    end,
+
+    // Called whenever the written text changes
+    InputChanged: func(text)
+    begin
+        local g := :CurrentGame();
+        if g.input = 'name then nameText := Clone(text)
+        else if g.input = 'regCode then regText := Clone(text);
+        :ShowResult();
+    end,
+
+    ShowResult: func()
+    begin
+        local r := :CurrentResult();
+        SetValue(resultText, 'text, r.big);
+        SetValue(messageText, 'text, r.small);
+    end
+};
+
+// ---------------------------------------------------------------------------
+// Children
+
+AddStepForm(theForm, {_proto: protoTitle, title: "Newton Unlock"});
+AddStepForm(theForm, {_proto: protoLargeClosebox});   // places itself bottom right
+
+// The standard Newton info button ("i", bottom left), set up exactly as in
+// Tactile's NTK-built games: the system draws it, and tapping it shows the
+// info picker, whose About item calls DoInfoAbout.
+AddStepForm(theForm, {
+    _proto: protoInfoButton,
+    viewJustify: 134,                   // vjParentBottomV + vjCenterH + vjCenterV
+    viewBounds: {left: 4, top: -16, right: 17, bottom: -3},
+    DoInfoAbout: func()
+        // Notify alerts have a fixed height, so the version goes in the title
+        GetRoot():Notify(kNotifyAlert, "Newton Unlock 1.0",
+            "Works out the unlock codes for Newton games from a registration code or owner name."
+            & Chr(13) & Chr(13) & "Written by Matt Hare and AI agent Claude")   // the Newton breaks lines on CR
+});
+
+gamePicker := {
+    _proto: protoLabelPicker,
+    label: "Game",
+    labelCommands: gameTitles,
+    viewJustify: vjParentFullH,
+    viewBounds: {left: 8, top: 26, right: -8, bottom: 44},
+    textSetup: func() games[gameIndex].title,
+    labelActionScript: func(index) :SelectGame(index)
+};
+AddStepForm(theForm, gamePicker);
+StepDeclare(theForm, gamePicker, 'gamePicker);
+
+inputLabel := {
+    _proto: protoStaticText,
+    text: "Name",
+    viewFont: ROM_fontSystem12Bold,
+    viewBounds: {left: 8, top: 56, right: 84, bottom: 72},
+    viewSetupFormScript: func()
+    begin
+        text := :LabelText();
+        if :CurrentGame().input = 'none then viewFlags := viewFlags - BAnd(viewFlags, 1);   // clear vVisible
+    end
+};
+AddStepForm(theForm, inputLabel);
+StepDeclare(theForm, inputLabel, 'inputLabel);
+
+inputLine := {
+    _proto: protoInputLine,
+    text: "",
+    viewFont: ROM_fontSystem12,
+    viewJustify: vjParentFullH,
+    viewBounds: {left: 86, top: 52, right: -8, bottom: 72},
+    viewSetupFormScript: func()
+    begin
+        text := Clone(:InputText());
+        if :CurrentGame().input = 'none then viewFlags := viewFlags - BAnd(viewFlags, 1);   // clear vVisible
+    end,
+    viewChangedScript: func(slot, view)
+    begin
+        inherited:?viewChangedScript(slot, view);
+        if slot = 'text then :InputChanged(text);
+    end
+};
+AddStepForm(theForm, inputLine);
+StepDeclare(theForm, inputLine, 'inputLine);
+
+hintText := {
+    _proto: protoStaticText,
+    text: "",
+    viewFont: ROM_fontSystem10,
+    viewJustify: vjParentFullH,
+    viewBounds: {left: 8, top: 78, right: -8, bottom: 126},
+    viewSetupFormScript: func() text := :CurrentGame().hint
+};
+AddStepForm(theForm, hintText);
+StepDeclare(theForm, hintText, 'hintText);
+
+resultLabel := {
+    _proto: protoStaticText,
+    text: "Unlock Code",
+    viewFont: ROM_fontSystem12Bold,
+    viewJustify: vjParentFullH,
+    viewBounds: {left: 8, top: 130, right: -8, bottom: 146}
+};
+AddStepForm(theForm, resultLabel);
+
+resultText := {
+    _proto: protoStaticText,
+    text: "",
+    viewFont: ROM_fontSystem18Bold,
+    viewJustify: vjParentFullH,
+    viewBounds: {left: 18, top: 150, right: -8, bottom: 174},
+    viewSetupFormScript: func() text := :CurrentResult().big
+};
+AddStepForm(theForm, resultText);
+StepDeclare(theForm, resultText, 'resultText);
+
+messageText := {
+    _proto: protoStaticText,
+    text: "",
+    viewFont: ROM_fontSystem10,
+    viewJustify: vjParentFullH,
+    viewBounds: {left: 18, top: 150, right: -8, bottom: 194},
+    viewSetupFormScript: func() text := :CurrentResult().small
+};
+AddStepForm(theForm, messageText);
+StepDeclare(theForm, messageText, 'messageText);
+
+SavePackage(kPackagePath, kAppName, kAppSymbol, kAppLabel, kAppIcon, theForm,
+            "Newton Unlock -- unlock codes for Newton games");

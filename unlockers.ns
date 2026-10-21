@@ -1,0 +1,258 @@
+// Newton Unlock: the games and their unlock algorithms, in NewtonScript.
+//
+// Ported from the Python scripts in each game's folder (e.g.
+// worldcon/worldcon_unlock.py). Used by NewtonUnlock.ns (the Newton app) and
+// by tests/check.py, which runs these same functions with NEWT/64 and compares
+// the answers with the Python scripts.
+//
+// Newton integers are 30 bits (largest 536870911), so the arithmetic here is
+// arranged never to go past that. There are no shift operators: x * 16 and
+// x div 4194304 stand in for << 4 and >> 22, and XOR is BOr(a,b) - BAnd(a,b).
+
+kTactileHint := "Enter the registration code shown on the game's registration screen. The X at each end of the unlock code can be any letter.";
+
+// input: 'regCode, 'name or 'none (one fixed code, nothing to enter)
+games := [
+    {title: "Columns", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "MF", hint: kTactileHint},
+    {title: "DeepSpaceNewt", publisher: "DejaVu Software", input: 'name, scheme: 'deepSpaceNewt,
+     hint: "Enter the owner name exactly as it appears on the owner card."},
+    {title: "Mahjongg", publisher: "Scrawl", input: 'name, scheme: 'scrawl, param: "Mahjongg",
+     hint: "Enter the owner name from the owner card, or the Serial Number shown in Mahjongg's About box."},
+    {title: "MineField II", publisher: "Tactile Systems", input: 'regCode, scheme: 'mineField,
+     hint: "Enter the registration code shown on the game's registration screen. Type the unlock code exactly, including the X at each end."},
+    {title: "Motile", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "FK", hint: kTactileHint},
+    {title: "NewtHack", publisher: "Chris Dopp", input: 'name, scheme: 'newtHack,
+     hint: "Enter the owner name from the owner card. Enter the number with NewtHack's number picker."},
+    {title: "Newtopoly", publisher: "", input: 'name, scheme: 'newtopoly,
+     hint: "Enter the name exactly as you will write it on Newtopoly's registration slip."},
+    {title: "Scramble", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "OW", hint: kTactileHint},
+    {title: "Sea Hunt", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "VB", hint: kTactileHint},
+    // fixed code, from siliconcasino/serialnumber.txt
+    {title: "Silicon Casino", publisher: "Casady & Greene", input: 'none, scheme: 'fixed, param: "20837826",
+     hint: "No input needed: this is your Silicon Casino registration code."},
+    {title: "Solito DX", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "BL", hint: kTactileHint},
+    {title: "Super Newtris", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "NS", hint: kTactileHint},
+    {title: "World Conquest", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "KQ", hint: kTactileHint},
+    {title: "xWord Buddy", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "UO", hint: kTactileHint},
+    {title: "xWord Search", publisher: "Tactile Systems", input: 'regCode, scheme: 'tactile, param: "YA", hint: kTactileHint},
+    {title: "YAZI", publisher: "Scrawl", input: 'name, scheme: 'scrawl, param: "YAZI",
+     hint: "Enter the owner name from the owner card (or an owner persona's name)."}
+];
+
+// Every function returns {code: "..."} or {error: "..."}; Compute returns nil
+// when there is nothing typed yet.
+unlock := {
+    md2S: [
+        41, 46, 67, 201, 162, 216, 124, 1, 61, 54, 84, 161, 236, 240, 6, 19,
+        98, 167, 5, 243, 192, 199, 115, 140, 152, 147, 43, 217, 188, 76, 130, 202,
+        30, 155, 87, 60, 253, 212, 224, 22, 103, 66, 111, 24, 138, 23, 229, 18,
+        190, 78, 196, 214, 218, 158, 222, 73, 160, 251, 245, 142, 187, 47, 238, 122,
+        169, 104, 121, 145, 21, 178, 7, 63, 148, 194, 16, 137, 11, 34, 95, 33,
+        128, 127, 93, 154, 90, 144, 50, 39, 53, 62, 204, 231, 191, 247, 151, 3,
+        255, 25, 48, 179, 72, 165, 181, 209, 215, 94, 146, 42, 172, 86, 170, 198,
+        79, 184, 56, 210, 150, 164, 125, 182, 118, 252, 107, 226, 156, 116, 4, 241,
+        69, 157, 112, 89, 100, 113, 135, 32, 134, 91, 207, 101, 230, 45, 168, 2,
+        27, 96, 37, 173, 174, 176, 185, 246, 28, 70, 97, 105, 52, 64, 126, 15,
+        85, 71, 163, 35, 221, 81, 175, 58, 195, 92, 249, 206, 186, 197, 234, 38,
+        44, 83, 13, 110, 133, 40, 132, 9, 211, 223, 205, 244, 65, 129, 77, 82,
+        106, 220, 55, 200, 108, 193, 171, 250, 36, 225, 123, 8, 12, 189, 177, 74,
+        120, 136, 149, 139, 227, 99, 232, 109, 233, 203, 213, 254, 59, 0, 29, 57,
+        242, 239, 183, 14, 102, 88, 208, 228, 166, 119, 114, 248, 235, 117, 75, 10,
+        49, 68, 80, 180, 143, 237, 31, 26, 219, 153, 141, 51, 159, 17, 131, 20
+    ],
+
+    Compute: func(game, text)
+    begin
+        if game.input <> 'none and :IsBlank(text) then return nil;
+        local s := game.scheme;
+        if s = 'tactile then return :Tactile(text, game.param);
+        if s = 'mineField then return :MineField(text);
+        if s = 'newtopoly then return :Newtopoly(text);
+        if s = 'newtHack then return :NewtHack(text);
+        if s = 'scrawl then return :Scrawl(text, game.param);
+        if s = 'deepSpaceNewt then return :DeepSpaceNewt(text);
+        if s = 'fixed then return {code: game.param};
+        return {error: "Unknown game."};
+    end,
+
+    IsSpace: func(c)
+    begin
+        local o := Ord(c);
+        return o = 32 or o = 9 or o = 10 or o = 13 or o = 160;
+    end,
+
+    Trim: func(text)                                             // copy without outer whitespace
+    begin
+        local first := 0, last := StrLen(text) - 1;
+        while first <= last and :IsSpace(text[first]) do first := first + 1;
+        while last >= first and :IsSpace(text[last]) do last := last - 1;
+        return SubStr(text, first, last - first + 1);
+    end,
+
+    IsBlank: func(text)
+    begin
+        for i := 0 to StrLen(text) - 1 do
+            if not :IsSpace(text[i]) then return nil;
+        return true;
+    end,
+
+    // ---- Tactile Systems: worldcon_unlock.py and friends ----
+
+    ParseRegCode: func(text)
+    begin
+        local t := :Trim(text), v := 0;
+        if StrLen(t) = 0 then return {error: "The registration code should be digits only."};
+        for i := 0 to StrLen(t) - 1 do begin
+            local d := Ord(t[i]) - 48;
+            if d < 0 or d > 9 then return {error: "The registration code should be digits only."};
+            if v > 53687090 then return {error: "That registration code is too long."};
+            v := v * 10 + d;
+        end;
+        return {value: v};
+    end,
+
+    // digit pairs from the right become letters, and their character codes are summed
+    TactileCode: func(n, first, last)
+    begin
+        if n < 0 then return {error: "That registration code is too small to be valid."};
+        local s := "" & n, total := 0, letters := "", i := StrLen(s) - 1;
+        while i >= 1 do begin
+            total := total + Ord(s[i]);
+            letters := letters & Chr(65 + (Ord(s[i]) - 48) + (Ord(s[i - 1]) - 48));
+            i := i - 2;
+        end;
+        local nl := StrLen(letters);
+        local head := if nl > 2 then SubStr(letters, 0, 2) else letters;
+        local tail := if nl > 2 then SubStr(letters, nl - 2, 2) else letters;
+        return {code: first & head & total & tail & last};
+    end,
+
+    Tactile: func(text, salt)
+    begin
+        local r := :ParseRegCode(text);
+        if r.error then return r;
+        return :TactileCode(r.value - (Ord(salt[0]) * 100 + Ord(salt[1])), "X", "X");
+    end,
+
+    // MineField II: the salt comes from the unlock code's own X...X ends: 67, 67
+    MineField: func(text)
+    begin
+        local r := :ParseRegCode(text);
+        if r.error then return r;
+        return :TactileCode(r.value - 6767, "X", "X");
+    end,
+
+    // ---- Newtopoly: newtopoly_unlock.py (MD2 with two quirks) ----
+
+    Newtopoly: func(text)
+    begin
+        local s := text & "    ", n := StrLen(s);
+        if n < 6 then return {error: "The name must be at least 2 characters."};
+        local pad := 16 - n mod 16;
+        local msg := Array(n + pad + 16, 0);
+        for i := 0 to n - 1 do msg[i] := Ord(s[i]);
+        msg[0] := BOr(msg[0], 81) - BAnd(msg[0], 81);           // xor 'Q'
+        msg[1] := BOr(msg[1], 88) - BAnd(msg[1], 88);           // xor 'X'
+        for i := 0 to n - 1 do
+            if msg[i] > 255 then return {error: "The name contains a character that can't be hashed."};
+
+        for i := n to n + pad - 1 do msg[i] := pad;              // MD2 padding
+        n := n + pad;
+
+        local c := Array(16, 0), l := 0;                         // checksum quirk: C[j] = S[c xor L]
+        for i := 0 to n - 1 by 16 do
+            for j := 0 to 15 do begin
+                local m := msg[i + j];
+                c[j] := md2S[BOr(m, l) - BAnd(m, l)];
+                l := c[j];
+            end;
+        for j := 0 to 15 do msg[n + j] := c[j];
+        n := n + 16;
+
+        local x := Array(48, 0);                                 // MD2 compression
+        for i := 0 to n - 1 by 16 do begin
+            for j := 0 to 15 do begin
+                local a := msg[i + j], b := x[j];
+                x[16 + j] := a;
+                x[32 + j] := BOr(a, b) - BAnd(a, b);
+            end;
+            local t := 0;
+            for j := 0 to 17 do begin
+                for k := 0 to 47 do begin
+                    local a := x[k], b := md2S[t];
+                    t := BOr(a, b) - BAnd(a, b);
+                    x[k] := t;
+                end;
+                t := (t + j) mod 256;
+            end;
+        end;
+
+        // first 8 bytes as hex; quirk: high nibble is (b - 1) div 16, truncating toward zero
+        local hex := "0123456789abcdef", out := "";
+        for i := 0 to 7 do begin
+            local b := x[i];
+            out := out & hex[if b = 0 then 0 else (b - 1) div 16] & hex[b mod 16];
+        end;
+        return {code: out};
+    end,
+
+    // ---- NewtHack: newthack_unlock.py ----
+
+    NewtHack: func(text)
+    begin
+        local key := "NewtHack:ChrisDopp", s := Clone(text), digits := "";
+        Downcase(s);
+        s := :Trim(s);
+        if StrLen(s) < 7 then s := s & key;
+        if StrLen(s) < 8 then return {error: "NewtHack can't register a name that is exactly 7 characters long."};
+        // even positions come from the app symbol, odd positions from the name
+        for i := 0 to 7 do
+            digits := digits & ((if i mod 2 = 1 then Ord(s[i]) else Ord(key[i])) mod 10);
+        local start := 0;                                        // StringToNumber drops leading zeros
+        while start < 7 and digits[start] = $0 do start := start + 1;
+        return {code: SubStr(digits, start, 8 - start)};
+    end,
+
+    // ---- YAZI and Mahjongg (Scrawl): yazi_unlock.py, mahjongg_unlock.py ----
+
+    Scrawl: func(text, suffix)
+    begin
+        local s := text & suffix;
+        while StrLen(s) < 20 do s := s & s;
+        local h := 0;
+        for i := 0 to StrLen(s) - 1 do begin                     // 29-bit PJW/ELF-style hash
+            local c := Ord(s[i]);
+            local a := BAnd(h, 0x01FFFFFF) * 16;                 // (h << 4) & 0x1FFFFFFF
+            if a > 0x1FFFFFFF - c then h := a - 0x1FFFFFFF - 1 + c   // (a + c) & 0x1FFFFFFF
+            else h := a + c;
+            local g := BAnd(h, 0x1E000000);
+            if g <> 0 then begin
+                local q := g div 4194304;                        // g >> 22
+                h := BAnd(BOr(h, q) - BAnd(h, q), 0x01FFFFFF);
+            end;
+        end;
+        local out := "";
+        foreach d in [1, 8, 64, 512, 4096, 32768, 262144, 2097152, 16777216] do
+            out := out & Chr(BAnd(h div d, 15) + 97);
+        return {code: out};
+    end,
+
+    // ---- DeepSpaceNewt: deepspacenewt_unlock.py ----
+
+    DeepSpaceNewt: func(text)
+    begin
+        local key := "DeepSpaceNewt", kl := StrLen(key), n := StrLen(text), out := "";
+        if n = 0 then return {error: "Enter the owner name."};
+        local count := (n + kl) mod 7 + 7, i := 0, j := 0;     // loop runs 0..count inclusive
+        for step := 0 to count do begin
+            local a := Ord(text[i]) + Ord(key[j]);
+            i := (i + 1) mod n; j := (j + 1) mod kl;
+            local b := Ord(text[i]) + Ord(key[j]);
+            i := (i + 1) mod n; j := (j + 1) mod kl;
+            local v := BOr(BAnd(a, 85), BAnd(b, 170)) mod 36 + 48;
+            if v >= 58 then v := v - 58 + 97;                    // past '9' -> 'a'..'z'
+            out := out & Chr(v);
+        end;
+        return {code: out};
+    end
+};
